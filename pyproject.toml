@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ragkit"
+version = "0.1.0"
+description = "Agentic RAG: hybrid retrieval, reciprocal-rank fusion, reranking and grounded citations."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Mehul Jariwala", email = "mjariwala98@gmail.com" }]
+keywords = ["rag", "retrieval", "llm", "agents", "bm25", "vector-search", "evals"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Deliberately minimal. No vendor SDK is required: the default provider is
+# offline, and the remote providers use urllib against the public HTTP APIs.
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn[standard]>=0.27", "pydantic>=2.6"]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.1",
+  "httpx>=0.27",
+  "ruff>=0.4",
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+]
+
+[project.scripts]
+ragkit-eval = "evals.run_eval:main"
+
+[project.urls]
+Homepage = "https://github.com/mehuljariwala/agentic-rag-platform"
+Issues = "https://github.com/mehuljariwala/agentic-rag-platform/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ragkit"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 90
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.coverage.run]
+source = ["src/ragkit"]

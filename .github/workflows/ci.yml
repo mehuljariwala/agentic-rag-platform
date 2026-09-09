@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install
+        run: uv pip install --system -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src evals tests
+
+      - name: Format check
+        run: ruff format --check src evals tests
+
+      - name: Test
+        run: pytest --cov=src/ragkit --cov-report=term-missing
+
+  evals:
+    # Retrieval quality is a build artifact, not a vibe. This job fails the
+    # build if a change regresses ranking on the labelled dataset. It runs on
+    # the offline provider so it is deterministic and costs nothing.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - run: uv pip install --system -e ".[dev]"
+
+      - name: Retrieval ablation
+        run: python -m evals.run_eval --compare
+
+      - name: Regression gate
+        run: python -m evals.run_eval --fail-under 0.94 --metric mrr --json eval.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-summary
+          path: eval.json
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ragkit:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the container
+        run: |
+          docker run -d --name ragkit -p 8000:8000 ragkit:ci
+          for i in $(seq 1 30); do
+            if curl -sf localhost:8000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf localhost:8000/health | tee /dev/stderr | grep -q '"status":"ok"'
+          curl -sf localhost:8000/ingest -H 'content-type: application/json' \
+            -d '{"documents":[{"id":"d","text":"Autovacuum reclaims dead tuples."}]}' >/dev/null
+          curl -sf localhost:8000/query -H 'content-type: application/json' \
+            -d '{"query":"what does autovacuum reclaim?"}' | tee /dev/stderr | grep -q 'citations'
+          docker rm -f ragkit

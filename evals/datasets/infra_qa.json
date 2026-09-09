@@ -1,0 +1,191 @@
+{
+  "name": "infra_qa",
+  "description": "Infrastructure documentation QA, built to be hard. The corpus deliberately contains topical near-neighbours that share vocabulary (five documents discuss 'eviction', four discuss 'vacuum'/'reclaim', three discuss 'retry/backoff'), so lexical overlap alone does not identify the right document. Queries mix exact terminology, morphological variants, and paraphrases that share no content words with the source, and a third of them have more than one correct answer.",
+  "documents": [
+    {
+      "id": "pg-autovacuum",
+      "metadata": {"source": "postgres", "kind": "ops"},
+      "text": "## Autovacuum tuning\nAutovacuum reclaims storage occupied by dead tuples. Dead tuples accumulate because PostgreSQL uses multiversion concurrency control: an UPDATE writes a new row version and leaves the previous one in place until no snapshot can still see it. A worker starts once dead tuples exceed autovacuum_vacuum_threshold plus autovacuum_vacuum_scale_factor times the row count. On very large tables the default scale factor of 0.2 means the daemon almost never runs, so the table keeps growing. Lowering the scale factor per table makes cleanup more frequent and keeps the heap compact."
+    },
+    {
+      "id": "pg-freeze",
+      "metadata": {"source": "postgres", "kind": "ops"},
+      "text": "## Transaction ID wraparound\nEvery row carries the transaction id that created it, and the counter is only 32 bits wide. An aggressive vacuum must freeze old rows before the counter wraps, otherwise data that is still live would appear to be from the future and become invisible. When the oldest unfrozen transaction id gets too close to the limit PostgreSQL emits wraparound warnings, and if it is ignored the database refuses new writes and shuts down to protect itself. Freeze vacuums cannot be skipped, which is why they sometimes appear unexpectedly on tables that are never updated."
+    },
+    {
+      "id": "pg-bloat",
+      "metadata": {"source": "postgres", "kind": "ops"},
+      "text": "## Table and index bloat\nBloat is space occupied by dead rows that vacuum has marked reusable but never returned to the filesystem. A plain vacuum reclaims space for reuse inside the relation; only VACUUM FULL rewrites the table and shrinks the file on disk, and it takes an exclusive lock for the duration. Indexes bloat independently of their table and often need REINDEX CONCURRENTLY. Long running transactions are the usual root cause because they hold back the oldest visible snapshot and prevent cleanup from making progress."
+    },
+    {
+      "id": "pg-indexes",
+      "metadata": {"source": "postgres", "kind": "reference"},
+      "text": "## Index types\nPostgreSQL supports B-tree, hash, GiST, SP-GiST, GIN and BRIN indexes. B-tree is the default and serves equality and range predicates as well as ORDER BY. GIN is built for composite values such as arrays, jsonb documents and tsvector, and is what makes full text search fast. BRIN stores only a summary per block range, making it extremely small and well suited to naturally ordered append-only data such as time series. Hash indexes serve equality only and are rarely the right choice."
+    },
+    {
+      "id": "pg-isolation",
+      "metadata": {"source": "postgres", "kind": "reference"},
+      "text": "## Transaction isolation\nPostgreSQL implements read committed, repeatable read and serializable isolation. Read committed is the default: each statement sees a snapshot taken when that statement began. Repeatable read takes one snapshot for the whole transaction so the same query returns the same rows throughout. Serializable adds predicate locking to detect dependency cycles between concurrent transactions and aborts one with a serialization failure. Applications using serializable must be prepared to retry the aborted transaction."
+    },
+    {
+      "id": "mysql-purge",
+      "metadata": {"source": "mysql", "kind": "ops"},
+      "text": "## InnoDB purge and undo\nInnoDB keeps old row versions in the undo log so that consistent reads can reconstruct earlier snapshots. Purge threads remove undo records once no transaction needs them. A long running transaction pins the undo log and causes history list length to grow without bound, which inflates the system tablespace and slows every read that has to walk the version chain. Increasing innodb_purge_threads helps only when purge is genuinely behind rather than blocked by an open transaction."
+    },
+    {
+      "id": "es-merge",
+      "metadata": {"source": "elasticsearch", "kind": "ops"},
+      "text": "## Segment merging\nLucene writes immutable segments, so a delete only marks a document as deleted rather than removing it. Merging rewrites several small segments into a larger one and physically reclaims the space used by deleted documents. Merging is IO intensive and competes with indexing throughput, which is why force merge should only run on indices that are no longer being written to. A shard with too many small segments makes every search slower because each segment is searched independently."
+    },
+    {
+      "id": "kafka-rebalance",
+      "metadata": {"source": "kafka", "kind": "ops"},
+      "text": "## Consumer group rebalancing\nA consumer group rebalances when a member joins or leaves, when a member fails to heartbeat within session.timeout.ms, or when the subscribed topic changes partition count. During a rebalance the coordinator revokes partition assignments and consumption stops entirely, which shows up as a latency spike. The cooperative sticky assignor reduces the impact because it only revokes partitions that must actually change owner. Raising max.poll.interval.ms helps when processing a batch legitimately takes a long time."
+    },
+    {
+      "id": "kafka-partitions",
+      "metadata": {"source": "kafka", "kind": "reference"},
+      "text": "## Partition count and ordering\nOrdering in Kafka is guaranteed only within a partition, so records that must be processed in sequence have to share a key. Partition count sets the ceiling on consumer parallelism: a group can never have more actively consuming members than partitions. Increasing partitions later is possible but it changes the key to partition mapping, so records with the same key can land in a different partition and arrive out of order relative to their history."
+    },
+    {
+      "id": "kafka-retention",
+      "metadata": {"source": "kafka", "kind": "reference"},
+      "text": "## Retention and compaction\nTopics use either the delete or compact cleanup policy. Under delete, segments are discarded once retention.ms or retention.bytes is exceeded. Under compaction the broker keeps at least the most recent value for every key, turning the topic into a durable changelog that can be replayed to rebuild state. Compaction never removes the latest record for a key, so a topic used as a keyed store will not lose the current value however old it is."
+    },
+    {
+      "id": "kafka-delivery",
+      "metadata": {"source": "kafka", "kind": "reference"},
+      "text": "## Delivery guarantees\nProducers choose between at most once, at least once and exactly once semantics. Setting acks=all with enable.idempotence=true gives at least once delivery without the duplicates that producer retries would otherwise create. Exactly once across a read-process-write cycle additionally needs transactions and a transactional.id, with consumers set to read_committed so they never observe records from aborted transactions."
+    },
+    {
+      "id": "rabbitmq-prefetch",
+      "metadata": {"source": "rabbitmq", "kind": "ops"},
+      "text": "## Prefetch and acknowledgement\nA consumer with unlimited prefetch will pull the whole queue into memory and starve its peers, because the broker hands out messages as fast as the socket allows. Setting a modest basic.qos prefetch count keeps work distributed across consumers and bounds memory. Messages that are never acknowledged stay unacked forever and are redelivered only when the channel closes, so a consumer that hangs silently removes throughput without any error appearing."
+    },
+    {
+      "id": "redis-eviction",
+      "metadata": {"source": "redis", "kind": "ops"},
+      "text": "## Eviction policies\nRedis starts evicting keys once memory reaches maxmemory. The allkeys-lru policy discards the least recently used key whether or not it has an expiry, while volatile-lru only considers keys carrying a TTL. The allkeys-lfu variant tracks access frequency rather than recency, which suits a workload with a stable hot set. Choosing noeviction makes writes return an error at the limit instead of silently dropping data, which is the safe setting when Redis holds anything authoritative."
+    },
+    {
+      "id": "redis-persistence",
+      "metadata": {"source": "redis", "kind": "ops"},
+      "text": "## Persistence\nRedis offers RDB snapshots and the append only file. RDB forks and writes a point in time snapshot, compact and quick to restore but able to lose everything since the last write of the snapshot. The append only file records every write command and can be fsynced every second or on every write, trading throughput for durability. Running both is common: the AOF bounds worst case data loss while the RDB provides a fast restore path."
+    },
+    {
+      "id": "redis-cluster",
+      "metadata": {"source": "redis", "kind": "ops"},
+      "text": "## Cluster resharding\nRedis Cluster splits the keyspace into 16384 hash slots distributed across masters. Resharding migrates slots between nodes while the cluster serves traffic; clients following a MOVED or ASK redirect continue to work throughout. Multi-key operations only succeed when every key hashes to the same slot, which is what hash tags in braces are for. A node failure without a replica leaves its slots uncovered and the whole cluster stops accepting writes for those slots."
+    },
+    {
+      "id": "k8s-probes",
+      "metadata": {"source": "kubernetes", "kind": "ops"},
+      "text": "## Liveness and readiness probes\nA readiness probe controls whether a pod receives service traffic; a liveness probe controls whether the kubelet restarts the container. Pointing a liveness probe at a downstream dependency such as a database is a classic mistake: when that dependency blips every replica fails its probe simultaneously and restarts, converting a partial degradation into a full outage. Startup probes exist so slow-booting containers are not killed during initialisation."
+    },
+    {
+      "id": "k8s-resources",
+      "metadata": {"source": "kubernetes", "kind": "ops"},
+      "text": "## Requests and limits\nA resource request is what the scheduler uses to place a pod; a limit is what the runtime enforces. Exceeding a memory limit gets the container OOM killed, whereas exceeding a CPU limit merely throttles it. Setting a CPU limit far below the request causes severe throttling under load, and omitting a memory request lets the scheduler overcommit the node until the kubelet starts evicting pods under memory pressure."
+    },
+    {
+      "id": "k8s-eviction",
+      "metadata": {"source": "kubernetes", "kind": "ops"},
+      "text": "## Node pressure eviction\nWhen a node runs low on memory or disk the kubelet reclaims resources by evicting pods, ranked by quality of service class. BestEffort pods go first, then Burstable pods exceeding their requests, and Guaranteed pods last. Eviction is graceful where possible, but under sudden memory pressure the kernel OOM killer can act before the kubelet does, which produces a hard kill with no termination grace period and no eviction event to explain it."
+    },
+    {
+      "id": "k8s-hpa",
+      "metadata": {"source": "kubernetes", "kind": "ops"},
+      "text": "## Horizontal pod autoscaling\nThe autoscaler compares observed metrics against a target and adjusts replica count. Scaling on CPU utilisation is a ratio against the request, so a pod with no CPU request cannot be scaled on CPU at all. Stabilisation windows prevent the controller from flapping when the metric oscillates. Scaling on a queue depth or request rate usually tracks real load better than CPU, since a service blocked on IO shows low utilisation while badly overloaded."
+    },
+    {
+      "id": "jvm-gc",
+      "metadata": {"source": "jvm", "kind": "ops"},
+      "text": "## Garbage collection pauses\nG1 divides the heap into regions and collects those with the most garbage first, targeting a configurable pause goal. Long pauses usually mean the live set has grown until collection cannot keep up, not that the collector needs more tuning flags. Allocating a heap larger than the container memory limit is a common failure: the JVM sizes itself against the host rather than the cgroup unless container awareness is on, and the process is OOM killed with no GC log evidence."
+    },
+    {
+      "id": "http-caching",
+      "metadata": {"source": "http", "kind": "reference"},
+      "text": "## Cache headers\nCache-Control directs both browser and shared caches. max-age sets freshness lifetime in seconds, s-maxage overrides it for shared caches only, and stale-while-revalidate lets a cache serve a stale response while fetching a fresh one in the background. An ETag lets the client revalidate with If-None-Match and get a 304 Not Modified when nothing changed, saving bandwidth but still costing a round trip."
+    },
+    {
+      "id": "cdn-invalidation",
+      "metadata": {"source": "cdn", "kind": "ops"},
+      "text": "## Edge invalidation\nPurging an object at the edge is eventually consistent across points of presence, so a deploy that relies on an immediate purge will serve mixed versions for a period. Content-hashed filenames avoid the problem entirely because a new build produces new URLs and nothing needs invalidating. The Vary header multiplies the number of cached objects, and varying on a header with many values effectively disables edge caching for that route."
+    },
+    {
+      "id": "tls-handshake",
+      "metadata": {"source": "http", "kind": "reference"},
+      "text": "## TLS handshake\nTLS 1.3 completes a handshake in one round trip by having the client guess the key exchange group and send its key share with the ClientHello. If the server prefers a different group it answers with HelloRetryRequest and the handshake costs an extra round trip. Session resumption with a pre-shared key permits zero round trip data, but early data is replayable and must therefore carry only idempotent requests."
+    },
+    {
+      "id": "grpc-deadlines",
+      "metadata": {"source": "grpc", "kind": "reference"},
+      "text": "## Deadlines and cancellation\nEvery gRPC call should carry a deadline, and it propagates automatically to downstream calls made within the same context. Without one a stalled dependency holds the request open indefinitely and exhausts the server's connection pool. When a client cancels, the cancellation propagates through the context so downstream servers stop producing a result nobody will read."
+    },
+    {
+      "id": "grpc-retry",
+      "metadata": {"source": "grpc", "kind": "reference"},
+      "text": "## Retries and backoff\nRetrying without jitter synchronises clients into waves that arrive together and keep a recovering service down. Exponential backoff with full jitter spreads them out. Retries must be budgeted, because a client retrying three times against a service that itself retries three times produces nine times the load at the bottom of the stack. Only idempotent operations are safe to retry blindly; anything else needs an idempotency key."
+    },
+    {
+      "id": "obs-cardinality",
+      "metadata": {"source": "observability", "kind": "ops"},
+      "text": "## Metric cardinality\nEvery distinct combination of label values is a separate time series. Putting a user id, request id or raw URL path in a label multiplies series without bound and eventually exhausts the metrics backend's memory. Keep labels to small closed sets such as status class, method and route template, and push anything high cardinality into logs or traces where it can be sampled instead."
+    },
+    {
+      "id": "obs-sampling",
+      "metadata": {"source": "observability", "kind": "ops"},
+      "text": "## Trace sampling\nHead sampling decides at the root span and is cheap but discards the rare slow request that actually needed investigating. Tail sampling buffers the whole trace and decides after seeing it, so errors and long latencies can be kept while routine traffic is dropped, at the cost of memory in the collector. Sampling decisions must propagate consistently across services or traces arrive with missing spans."
+    }
+  ],
+  "queries": [
+    {"id": "q01", "query": "what does autovacuum reclaim", "relevant": ["pg-autovacuum"], "style": "exact"},
+    {"id": "q02", "query": "vacuuming large tables far too infrequently", "relevant": ["pg-autovacuum"], "style": "morphological"},
+    {"id": "q03", "query": "database refuses writes because the transaction counter is running out", "relevant": ["pg-freeze"], "style": "paraphrase"},
+    {"id": "q04", "query": "how do I actually shrink the file on disk", "relevant": ["pg-bloat"], "style": "paraphrase"},
+    {"id": "q05", "query": "long running transaction preventing cleanup", "relevant": ["pg-bloat", "mysql-purge"], "style": "multi"},
+    {"id": "q06", "query": "which index type is best for time series data", "relevant": ["pg-indexes"], "style": "exact"},
+    {"id": "q07", "query": "indexing jsonb and full text documents", "relevant": ["pg-indexes"], "style": "morphological"},
+    {"id": "q08", "query": "serialization failure retry transactions", "relevant": ["pg-isolation"], "style": "exact"},
+    {"id": "q09", "query": "undo log history list length growing", "relevant": ["mysql-purge"], "style": "exact"},
+    {"id": "q10", "query": "deleted documents still taking up space until segments merge", "relevant": ["es-merge"], "style": "exact"},
+    {"id": "q11", "query": "reclaiming space from rows that are already deleted", "relevant": ["pg-bloat", "es-merge", "mysql-purge"], "style": "multi"},
+    {"id": "q12", "query": "why does consumption pause when a consumer joins", "relevant": ["kafka-rebalance"], "style": "paraphrase"},
+    {"id": "q13", "query": "cooperative sticky assignor", "relevant": ["kafka-rebalance"], "style": "exact"},
+    {"id": "q14", "query": "can I have more consumers than partitions", "relevant": ["kafka-partitions"], "style": "paraphrase"},
+    {"id": "q15", "query": "records with the same key arriving out of order after a change", "relevant": ["kafka-partitions"], "style": "paraphrase"},
+    {"id": "q16", "query": "log compaction keyed changelog replay", "relevant": ["kafka-retention"], "style": "exact"},
+    {"id": "q17", "query": "exactly once semantics with transactions", "relevant": ["kafka-delivery"], "style": "exact"},
+    {"id": "q18", "query": "idempotent producer avoiding duplicates on retry", "relevant": ["kafka-delivery"], "style": "morphological"},
+    {"id": "q19", "query": "one consumer hogging the whole queue and starving the others", "relevant": ["rabbitmq-prefetch"], "style": "paraphrase"},
+    {"id": "q20", "query": "how do I stop redis discarding data when memory is full", "relevant": ["redis-eviction"], "style": "paraphrase"},
+    {"id": "q21", "query": "least frequently used policy for a stable hot set", "relevant": ["redis-eviction"], "style": "exact"},
+    {"id": "q22", "query": "append only file fsync durability tradeoff", "relevant": ["redis-persistence"], "style": "exact"},
+    {"id": "q23", "query": "snapshotting and restoring quickly after a crash", "relevant": ["redis-persistence"], "style": "morphological"},
+    {"id": "q24", "query": "multi key operations failing across nodes", "relevant": ["redis-cluster"], "style": "paraphrase"},
+    {"id": "q25", "query": "all my replicas restarted at once when the database blipped", "relevant": ["k8s-probes"], "style": "paraphrase"},
+    {"id": "q26", "query": "container OOM killed memory limit", "relevant": ["k8s-resources", "jvm-gc"], "style": "multi"},
+    {"id": "q27", "query": "cpu throttling under load", "relevant": ["k8s-resources"], "style": "exact"},
+    {"id": "q28", "query": "kubelet reclaiming resources under node pressure", "relevant": ["k8s-eviction"], "style": "exact"},
+    {"id": "q29", "query": "which pods get killed first when a node runs out of memory", "relevant": ["k8s-eviction"], "style": "paraphrase"},
+    {"id": "q30", "query": "eviction when memory runs out", "relevant": ["redis-eviction", "k8s-eviction"], "style": "multi"},
+    {"id": "q31", "query": "autoscaler flapping and scaling on the wrong signal", "relevant": ["k8s-hpa"], "style": "paraphrase"},
+    {"id": "q32", "query": "heap sized against the host instead of the cgroup", "relevant": ["jvm-gc"], "style": "exact"},
+    {"id": "q33", "query": "serve stale response while revalidating in background", "relevant": ["http-caching"], "style": "exact"},
+    {"id": "q34", "query": "revalidation with etags and 304", "relevant": ["http-caching"], "style": "morphological"},
+    {"id": "q35", "query": "purge is eventually consistent so a deploy serves mixed versions", "relevant": ["cdn-invalidation"], "style": "exact"},
+    {"id": "q36", "query": "caching at the edge and in the browser", "relevant": ["http-caching", "cdn-invalidation"], "style": "multi"},
+    {"id": "q37", "query": "zero round trip resumption replay risk", "relevant": ["tls-handshake"], "style": "exact"},
+    {"id": "q38", "query": "handshake costs an extra trip when the group guess is wrong", "relevant": ["tls-handshake"], "style": "paraphrase"},
+    {"id": "q39", "query": "stalled dependency exhausting the connection pool", "relevant": ["grpc-deadlines"], "style": "exact"},
+    {"id": "q40", "query": "cancelling downstream work nobody will read", "relevant": ["grpc-deadlines"], "style": "morphological"},
+    {"id": "q41", "query": "clients all coming back at the same moment and knocking the service over again", "relevant": ["grpc-retry"], "style": "paraphrase"},
+    {"id": "q42", "query": "retry amplification through layers of a stack", "relevant": ["grpc-retry"], "style": "exact"},
+    {"id": "q43", "query": "safe to retry only when the operation is idempotent", "relevant": ["grpc-retry", "kafka-delivery"], "style": "multi"},
+    {"id": "q44", "query": "too many time series from labels", "relevant": ["obs-cardinality"], "style": "paraphrase"},
+    {"id": "q45", "query": "should I put a request id in a metric label", "relevant": ["obs-cardinality"], "style": "paraphrase"},
+    {"id": "q46", "query": "keeping the slow requests while dropping routine traffic", "relevant": ["obs-sampling"], "style": "paraphrase"},
+    {"id": "q47", "query": "decisions must propagate or spans go missing", "relevant": ["obs-sampling"], "style": "exact"},
+    {"id": "q48", "query": "controlling observability cost at high volume", "relevant": ["obs-cardinality", "obs-sampling"], "style": "multi"}
+  ]
+}

@@ -1,0 +1,26 @@
+services:
+  ragkit:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # Default is fully offline. Point at a real provider by setting
+      # RAGKIT_PROVIDER and the matching key in your shell before `up`.
+      RAGKIT_PROVIDER: ${RAGKIT_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # host.docker.internal lets the container reach an Ollama running on the
+      # host rather than requiring it to be containerised too.
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 1g
